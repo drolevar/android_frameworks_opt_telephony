@@ -57,6 +57,7 @@ import android.text.TextUtils;
 import com.android.internal.telephony.data.KeepaliveStatus;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.uicc.AdnCapacity;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus;
 import com.android.internal.telephony.uicc.IccCardStatus;
 import com.android.internal.telephony.uicc.IccIoResult;
 import com.android.internal.telephony.uicc.IccSlotPortMapping;
@@ -1461,7 +1462,13 @@ public class RadioResponse extends IRadioResponse.Stub {
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void setUiccSubscriptionResponse(RadioResponseInfo responseInfo) {
+        Boolean legacyTarget = mRil.consumePendingLegacyUiccAppsEnable(responseInfo.serial);
         responseVoid(responseInfo);
+        if (legacyTarget != null && responseInfo.error == RadioError.NONE) {
+            mRil.setLegacyUiccAppsEnabled(legacyTarget);
+            mRil.mUiccApplicationsEnablementRegistrants.notifyResult(legacyTarget);
+            mRil.mIccStatusChangedRegistrants.notifyRegistrants();
+        }
     }
 
     /**
@@ -1857,6 +1864,30 @@ public class RadioResponse extends IRadioResponse.Stub {
             iccCardStatus.atr = cardStatus.base.atr;
             iccCardStatus.iccid = cardStatus.base.iccid;
             iccCardStatus.eid = cardStatus.eid;
+            if (responseInfo.error == RadioError.NONE) {
+                if (iccCardStatus.mCardState == IccCardStatus.CardState.CARDSTATE_ABSENT) {
+                    mRil.resetLegacyUiccAppsEnabled();
+                } else if (iccCardStatus.mCardState == IccCardStatus.CardState.CARDSTATE_PRESENT) {
+                    if (!TextUtils.isEmpty(iccCardStatus.iccid)) {
+                        mRil.recordLastPresentLegacyIccId(iccCardStatus.iccid);
+                    } else if (mRil.isLegacyUiccSubToggleActive()) {
+                        String cachedIccId = mRil.getLastPresentLegacyIccId();
+                        if (!TextUtils.isEmpty(cachedIccId)) {
+                            iccCardStatus.iccid = cachedIccId;
+                        }
+                    }
+                    if (mRil.shouldMaskLegacyUiccAppsAsDetected()
+                            && iccCardStatus.mApplications != null) {
+                        for (IccCardApplicationStatus app : iccCardStatus.mApplications) {
+                            if (app != null
+                                    && app.app_state
+                                            == IccCardApplicationStatus.AppState.APPSTATE_READY) {
+                                app.app_state = IccCardApplicationStatus.AppState.APPSTATE_DETECTED;
+                            }
+                        }
+                    }
+                }
+            }
             mRil.riljLog("responseIccCardStatus: from HIDL: " + iccCardStatus);
             if (responseInfo.error == RadioError.NONE) {
                 sendMessageResponse(rr.mResult, iccCardStatus);

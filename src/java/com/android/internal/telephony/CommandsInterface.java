@@ -2214,6 +2214,13 @@ public interface CommandsInterface {
         return false;
     }
 
+    /**
+     * Whether legacy IRadio@1.0..1.4 setUiccSubscription is bridging UICC app enablement.
+     */
+    default boolean isLegacyUiccSubToggleActive() {
+        return false;
+    }
+
     default List<ClientRequestStats> getClientRequestStats() {
         return null;
     }

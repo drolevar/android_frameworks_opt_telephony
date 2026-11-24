@@ -654,6 +654,16 @@ public class RadioSimProxy extends RadioServiceProxy {
      */
     public void setUiccSubscription(int serial, int slotId, int appIndex, int subId, int subStatus)
             throws RemoteException {
+        if (isEmpty()) return;
+        if (!isAidl()) {
+            android.hardware.radio.V1_0.SelectUiccSub info =
+                    new android.hardware.radio.V1_0.SelectUiccSub();
+            info.slot = slotId;
+            info.appIndex = appIndex;
+            info.subType = subId;
+            info.actStatus = subStatus;
+            mRadioProxy.setUiccSubscription(serial, info);
+        }
     }
 
     /**

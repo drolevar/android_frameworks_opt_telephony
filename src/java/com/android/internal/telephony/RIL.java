@@ -281,6 +281,12 @@ public class RIL extends BaseCommands implements CommandsInterface {
     private final ConcurrentHashMap<Integer, HalVersion> mCompatOverrides =
             new ConcurrentHashMap<>();
 
+    private static final String PROP_HW_UICC_SUB_TOGGLE = "ro.config.hw_uicc_sub_toggle";
+    private volatile boolean mLegacyUiccAppsEnabled = true;
+    private volatile String mLastPresentLegacyIccId;
+    private final ConcurrentHashMap<Integer, Boolean> mPendingLegacyUiccAppsEnable =
+            new ConcurrentHashMap<>();
+
     //***** Events
     static final int EVENT_WAKE_LOCK_TIMEOUT = 2;
     static final int EVENT_ACK_WAKE_LOCK_TIMEOUT = 4;
@@ -4164,6 +4170,28 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void enableUiccApplications(boolean enable, Message result) {
         RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class);
+        if (isLegacyUiccSubToggleActive()) {
+            if (!canMakeRequest("enableUiccApplications", simProxy, result, RADIO_HAL_VERSION_1_0)) {
+                return;
+            }
+            RILRequest rr = obtainRequest(RIL_REQUEST_SET_UICC_SUBSCRIPTION, result,
+                    mRILDefaultWorkSource);
+            int slotId = mPhoneId != null ? mPhoneId : 0;
+            if (RILJ_LOGD) {
+                riljLog(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest)
+                        + " legacyToggle slot=" + slotId + " enable=" + enable);
+            }
+            mPendingLegacyUiccAppsEnable.put(rr.mSerial, enable);
+            radioServiceInvokeHelper(HAL_SERVICE_SIM, rr, "enableUiccApplications", () -> {
+                try {
+                    simProxy.setUiccSubscription(rr.mSerial, slotId, 0, slotId, enable ? 1 : 0);
+                } catch (Throwable t) {
+                    mPendingLegacyUiccAppsEnable.remove(rr.mSerial);
+                    throw t;
+                }
+            });
+            return;
+        }
         if (!canMakeRequest("enableUiccApplications", simProxy, result, RADIO_HAL_VERSION_1_5)) {
             return;
         }
@@ -4189,6 +4217,17 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void areUiccApplicationsEnabled(Message result) {
         RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class);
+        if (isLegacyUiccSubToggleActive()) {
+            if (!canMakeRequest("areUiccApplicationsEnabled", simProxy, result,
+                    RADIO_HAL_VERSION_1_0)) {
+                return;
+            }
+            if (result != null) {
+                AsyncResult.forMessage(result, mLegacyUiccAppsEnabled, null);
+                result.sendToTarget();
+            }
+            return;
+        }
         if (!canMakeRequest("areUiccApplicationsEnabled", simProxy, result,
                 RADIO_HAL_VERSION_1_5)) {
             return;
@@ -4207,12 +4246,61 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     /**
-     * Whether {@link #enableUiccApplications} is supported, which is supported in 1.5 version.
+     * Whether {@link #enableUiccApplications} is supported, which is supported in 1.5 version
+     * or bridged over IRadio@1.0..1.4 setUiccSubscription when ro.config.hw_uicc_sub_toggle=true.
      */
     @Override
     public boolean canToggleUiccApplicationsEnablement() {
+        if (isLegacyUiccSubToggleActive()) {
+            return canMakeRequest("canToggleUiccApplicationsEnablement",
+                    getRadioServiceProxy(RadioSimProxy.class), null, RADIO_HAL_VERSION_1_0);
+        }
         return canMakeRequest("canToggleUiccApplicationsEnablement",
                 getRadioServiceProxy(RadioSimProxy.class), null, RADIO_HAL_VERSION_1_5);
+    }
+
+    /**
+     * Whether legacy IRadio@1.0..1.4 setUiccSubscription bridging is active on this slot.
+     */
+    @Override
+    public boolean isLegacyUiccSubToggleActive() {
+        RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class);
+        HalVersion simHalVersion = mHalVersion.get(HAL_SERVICE_SIM);
+        return simProxy != null
+                && !simProxy.isEmpty()
+                && simHalVersion != null
+                && simHalVersion.greaterOrEqual(RADIO_HAL_VERSION_1_0)
+                && simHalVersion.less(RADIO_HAL_VERSION_1_5)
+                && SystemProperties.getBoolean(PROP_HW_UICC_SUB_TOGGLE, false);
+    }
+
+    Boolean consumePendingLegacyUiccAppsEnable(int serial) {
+        return mPendingLegacyUiccAppsEnable.remove(serial);
+    }
+
+    void setLegacyUiccAppsEnabled(boolean enabled) {
+        mLegacyUiccAppsEnabled = enabled;
+    }
+
+    /**
+     * Reset cached legacy UICC application enablement state when SIM becomes absent.
+     */
+    public void resetLegacyUiccAppsEnabled() {
+        mLegacyUiccAppsEnabled = true;
+        mLastPresentLegacyIccId = null;
+        mPendingLegacyUiccAppsEnable.clear();
+    }
+
+    void recordLastPresentLegacyIccId(String iccId) {
+        mLastPresentLegacyIccId = iccId;
+    }
+
+    String getLastPresentLegacyIccId() {
+        return mLastPresentLegacyIccId;
+    }
+
+    boolean shouldMaskLegacyUiccAppsAsDetected() {
+        return isLegacyUiccSubToggleActive() && !mLegacyUiccAppsEnabled;
     }
 
     /**
@@ -5751,6 +5839,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 rr.release();
             }
             mRequestList.clear();
+            mPendingLegacyUiccAppsEnable.clear();
         }
     }
 

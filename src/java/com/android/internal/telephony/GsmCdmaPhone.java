@@ -474,6 +474,20 @@ public class GsmCdmaPhone extends Phone {
                         // Clear allowed services while SIM is absent or unknown e.g. modem crash.
                         // Telephony will update allowed services after SIM is loaded.
                         clearAllowedImsServices();
+                        if (mSimState == TelephonyManager.SIM_STATE_ABSENT
+                                && mCi.isLegacyUiccSubToggleActive()) {
+                            post(() -> {
+                                mUiccApplicationsEnabled = true;
+                                mCi.areUiccApplicationsEnabled(
+                                        obtainMessage(EVENT_GET_UICC_APPS_ENABLEMENT_DONE));
+                            });
+                        }
+                    }
+                    if ((mSimState == TelephonyManager.SIM_STATE_PRESENT
+                            || mSimState == TelephonyManager.SIM_STATE_READY
+                            || mSimState == TelephonyManager.SIM_STATE_LOADED)
+                            && mCi.isLegacyUiccSubToggleActive()) {
+                        sendEmptyMessage(EVENT_UICC_APPS_ENABLEMENT_SETTING_CHANGED);
                     }
                 }
             }
@@ -4235,6 +4249,19 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public boolean canDisablePhysicalSubscription() {
         return mCi.canToggleUiccApplicationsEnablement();
+    }
+
+    @Override
+    public void radioCapabilityUpdated(RadioCapability rc, boolean capabilitySwitched) {
+        super.radioCapabilityUpdated(rc, capabilitySwitched);
+        if (capabilitySwitched && mCi.isLegacyUiccSubToggleActive()) {
+            post(() -> {
+                if (mUiccApplicationsEnabled != null) {
+                    enableUiccApplications(mUiccApplicationsEnabled, null);
+                }
+                reapplyUiccAppsEnablementIfNeeded(ENABLE_UICC_APPS_MAX_RETRIES);
+            });
+        }
     }
 
     @Override
