@@ -4171,7 +4171,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
     public void enableUiccApplications(boolean enable, Message result) {
         RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class);
         if (isLegacyUiccSubToggleActive()) {
-            if (!canMakeRequest("enableUiccApplications", simProxy, result, RADIO_HAL_VERSION_1_0)) {
+            if (!canMakeRequest("enableUiccApplications", simProxy, result, RADIO_HAL_VERSION_1_4)) {
                 return;
             }
             RILRequest rr = obtainRequest(RIL_REQUEST_SET_UICC_SUBSCRIPTION, result,
@@ -4219,7 +4219,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class);
         if (isLegacyUiccSubToggleActive()) {
             if (!canMakeRequest("areUiccApplicationsEnabled", simProxy, result,
-                    RADIO_HAL_VERSION_1_0)) {
+                    RADIO_HAL_VERSION_1_4)) {
                 return;
             }
             if (result != null) {
@@ -4253,7 +4253,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
     public boolean canToggleUiccApplicationsEnablement() {
         if (isLegacyUiccSubToggleActive()) {
             return canMakeRequest("canToggleUiccApplicationsEnablement",
-                    getRadioServiceProxy(RadioSimProxy.class), null, RADIO_HAL_VERSION_1_0);
+                    getRadioServiceProxy(RadioSimProxy.class), null, RADIO_HAL_VERSION_1_4);
         }
         return canMakeRequest("canToggleUiccApplicationsEnablement",
                 getRadioServiceProxy(RadioSimProxy.class), null, RADIO_HAL_VERSION_1_5);
@@ -4269,7 +4269,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return simProxy != null
                 && !simProxy.isEmpty()
                 && simHalVersion != null
-                && simHalVersion.greaterOrEqual(RADIO_HAL_VERSION_1_0)
+                && simHalVersion.greaterOrEqual(RADIO_HAL_VERSION_1_4)
                 && simHalVersion.less(RADIO_HAL_VERSION_1_5)
                 && SystemProperties.getBoolean(PROP_HW_UICC_SUB_TOGGLE, false);
     }
